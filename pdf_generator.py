@@ -1,6 +1,7 @@
-"""Geração do PDF do orçamento (ReportLab) — fiel ao layout do sistema desktop.
+"""Geração do PDF do orçamento com **fpdf2** (100% Python, sem código C — compila
+no Android sem problemas). Mantém o layout do sistema desktop original.
 
-Estrutura do PDF:
+Estrutura:
   Página 1 (ORÇAMENTO): cabeçalho com logo + dados da empresa + nº/data,
       dados do cliente, tabela de itens, totais/desconto, condições comerciais,
       assinatura do prestador.
@@ -10,257 +11,330 @@ Estrutura do PDF:
 import os
 from datetime import datetime
 
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak,
-)
-from reportlab.lib.units import mm
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 
 from util import fmt_moeda
 
-TEXT_PRIMARY = "#2B2F38"
-TEXT_SECONDARY = "#5C6472"
-BORDER_COLOR = "#E3E8F0"
-ROW_EVEN = "#F6F8FC"
+# --- cores ---
+TEXT_PRIMARY = (43, 47, 56)
+TEXT_SECONDARY = (92, 100, 114)
+BORDER = (210, 216, 228)
+ROW_EVEN = (246, 248, 252)
+WHITE = (255, 255, 255)
+
+# substituições p/ caracteres fora do Latin-1 (mantém o texto legível)
+_REPL = {
+    "—": "-", "–": "-", "•": "-", "“": '"', "”": '"', "‘": "'", "’": "'",
+    "→": "->", "×": "x", "…": "...", " ": " ",
+}
 
 
-def _imagem_redimensionada(path, max_w, max_h):
-    from PIL import Image as PILImage
-    pil = PILImage.open(path)
-    w, h = pil.size
-    ratio = min(max_w / w, max_h / h)
-    return Image(path, width=w * ratio, height=h * ratio)
+def S(t) -> str:
+    """Sanitiza o texto para o conjunto Latin-1 usado pelas fontes core."""
+    t = str(t if t is not None else "")
+    for a, b in _REPL.items():
+        t = t.replace(a, b)
+    return t.encode("latin-1", "replace").decode("latin-1")
+
+
+def _hex_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+class OrcamentoPDF(FPDF):
+    def __init__(self, primary):
+        super().__init__(orientation="P", unit="mm", format="A4")
+        self.primary = primary
+        self.set_margins(18, 15, 18)
+        self.set_auto_page_break(True, margin=15)
+
+
+def _img_size(path, max_w, max_h):
+    try:
+        from PIL import Image as PILImage
+        with PILImage.open(path) as im:
+            w, h = im.size
+        r = min(max_w / w, max_h / h)
+        return w * r, h * r
+    except Exception:
+        return max_w, max_h
 
 
 def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
-    cor_primaria = colors.HexColor(cor_primaria_hex)
-    cor_clara = colors.HexColor(ROW_EVEN)
-    cor_texto = colors.HexColor(TEXT_PRIMARY)
-    cor_secundaria = colors.HexColor(TEXT_SECONDARY)
-    cor_borda = colors.HexColor(BORDER_COLOR)
-
-    doc = SimpleDocTemplate(
-        caminho, pagesize=A4,
-        leftMargin=18 * mm, rightMargin=18 * mm,
-        topMargin=15 * mm, bottomMargin=15 * mm,
-        title=str(dados.get("numero", "")),
-    )
-
-    styles = getSampleStyleSheet()
-    st_sub = ParagraphStyle("Sub", parent=styles["Normal"], fontSize=9,
-                            textColor=cor_secundaria, leading=13)
-    st_branco = ParagraphStyle("Bco", parent=styles["Normal"], fontSize=11,
-                               textColor=colors.white, leading=14)
-    st_normal = ParagraphStyle("Nor", parent=styles["Normal"], fontSize=9.5,
-                               textColor=cor_texto, leading=14)
-    st_desc = ParagraphStyle("Des", parent=styles["Normal"], fontSize=9.5,
-                             textColor=cor_texto, leading=12)
-    st_termos = ParagraphStyle("Ter", parent=styles["Normal"], fontSize=9,
-                               textColor=cor_texto, leading=14)
-
-    largura = doc.width
+    primary = _hex_rgb(cor_primaria_hex)
+    pdf = OrcamentoPDF(primary)
+    cw = pdf.epw  # largura útil (content width)
+    emp = dados["empresa"]
+    cli = dados["cliente"]
 
     def secao(titulo):
-        t = Table([[Paragraph(f"<b>{titulo}</b>", st_branco)]], colWidths=[largura])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), cor_primaria),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        return t
+        pdf.ln(1)
+        pdf.set_fill_color(*primary)
+        pdf.set_text_color(*WHITE)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(cw, 7, "  " + S(titulo), fill=True,
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_text_color(*TEXT_PRIMARY)
+        pdf.ln(1.5)
 
-    def _texto_formatado(txt):
-        linhas = []
+    def linha_divisoria():
+        pdf.set_draw_color(*primary)
+        pdf.set_line_width(0.5)
+        y = pdf.get_y()
+        pdf.line(pdf.l_margin, y, pdf.l_margin + cw, y)
+        pdf.ln(3)
+
+    def cabecalho(titulo_dir, num, subtitulo="", ref_label="Nº"):
+        top = pdf.get_y()
+        larg_dir = 50
+        logo = emp.get("logo_path")
+        x_texto = pdf.l_margin
+        if logo and os.path.exists(logo):
+            try:
+                w, h = _img_size(logo, 28, 20)
+                pdf.image(logo, x=pdf.l_margin, y=top, w=w, h=h)
+                x_texto = pdf.l_margin + 30
+            except Exception:
+                pass
+        # ---- bloco esquerdo: dados da empresa ----
+        larg_emp = cw - (x_texto - pdf.l_margin) - larg_dir - 4
+        pdf.set_xy(x_texto, top)
+        pdf.set_text_color(*TEXT_SECONDARY)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(larg_emp, 5, S(emp.get("nome", "")),
+                 new_x=XPos.LEFT, new_y=YPos.NEXT)
+        pdf.set_x(x_texto)
+        pdf.set_font("Helvetica", "", 8.5)
+        info = []
+        if emp.get("cnpj"):
+            info.append(f"CNPJ: {emp['cnpj']}")
+        if emp.get("endereco"):
+            info.append(emp["endereco"])
+        contato = " | ".join(x for x in [emp.get("telefone"), emp.get("email")] if x)
+        if contato:
+            info.append(contato)
+        pdf.multi_cell(larg_emp, 4.3, S("\n".join(info)),
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        y_emp = pdf.get_y()
+        # ---- bloco direito: título / (subtítulo) / número / data ----
+        rx = pdf.l_margin + cw - larg_dir
+        pdf.set_xy(rx, top)
+        pdf.set_text_color(*primary)
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.multi_cell(larg_dir, 6.5, S(titulo_dir), align="R",
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        if subtitulo:
+            pdf.set_x(rx)
+            pdf.set_font("Helvetica", "B", 8.5)
+            pdf.multi_cell(larg_dir, 4.2, S(f"({subtitulo})"), align="R",
+                           new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(rx)
+        pdf.set_text_color(*TEXT_SECONDARY)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.multi_cell(larg_dir, 4.6, S(f"{ref_label} {num}"), align="R",
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(rx)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.multi_cell(larg_dir, 4.6, S("Data: " + datetime.now().strftime("%d/%m/%Y")),
+                       align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        y_dir = pdf.get_y()
+        # desce até abaixo do bloco mais alto
+        pdf.set_y(max(y_emp, y_dir, top + 22))
+        linha_divisoria()
+
+    def texto_bloco(txt):
+        pdf.set_text_color(*TEXT_PRIMARY)
         for ln in txt.split("\n"):
             base = ln.strip()
             miolo = base.rstrip(":").replace("(", "").replace(")", "").replace(" ", "")
             eh_titulo = (base.endswith(":") and len(base) <= 60 and miolo.isupper()
                          and any(c.isalpha() for c in miolo))
-            linhas.append(f"<b>{ln}</b>" if eh_titulo else ln)
-        return "<br/>".join(linhas)
+            pdf.set_font("Helvetica", "B" if eh_titulo else "", 9)
+            if base == "":
+                pdf.ln(2.2)
+            else:
+                pdf.multi_cell(cw, 4.6, S(ln), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    elementos = []
-    emp = dados["empresa"]
+    def par_rotulo(rotulo, valor):
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_text_color(*TEXT_PRIMARY)
+        w = pdf.get_string_width(S(rotulo) + " ")
+        pdf.cell(w, 5, S(rotulo))
+        pdf.set_font("Helvetica", "", 9.5)
+        pdf.multi_cell(cw - w, 5, S(valor or "-"),
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    info_empresa = (f"<b>{emp.get('nome','')}</b><br/>"
-                    f"CNPJ: {emp.get('cnpj','')}<br/>"
-                    f"{emp.get('endereco','')}<br/>"
-                    f"Tel: {emp.get('telefone','')} &nbsp;|&nbsp; {emp.get('email','')}")
+    # ================= PÁGINA 1: ORÇAMENTO =================
+    pdf.add_page()
+    subt = (emp.get("subtitulo") or "").strip()
+    cabecalho("ORÇAMENTO", dados.get("numero", ""), subtitulo=subt)
 
-    def montar_cabecalho(info_direita):
-        col_logo = None
-        logo = emp.get("logo_path")
-        if logo and os.path.exists(logo):
-            try:
-                col_logo = _imagem_redimensionada(logo, 30 * mm, 22 * mm)
-            except Exception:
-                col_logo = None
-        if col_logo is not None:
-            cab = Table([[col_logo, Paragraph(info_empresa, st_sub), Paragraph(info_direita, st_sub)]],
-                        colWidths=[32 * mm, largura - 32 * mm - 45 * mm, 45 * mm])
-        else:
-            cab = Table([[Paragraph(info_empresa, st_sub), Paragraph(info_direita, st_sub)]],
-                        colWidths=[largura - 45 * mm, 45 * mm])
-        cab.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        return [
-            cab,
-            Spacer(1, 6),
-            Table([[""]], colWidths=[largura],
-                  style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1.2, cor_primaria)])),
-            Spacer(1, 10),
-        ]
+    # Cliente
+    secao("DADOS DO CLIENTE")
+    par_rotulo("Nome:", cli.get("nome"))
+    pdf.set_font("Helvetica", "", 9.5)
+    par_rotulo("CPF/CNPJ:", cli.get("documento"))
+    par_rotulo("Telefone:", cli.get("telefone"))
+    par_rotulo("Endereço:", cli.get("endereco"))
+    par_rotulo("E-mail:", cli.get("email"))
+    pdf.ln(2)
 
-    # ---- Página 1: cabeçalho do ORÇAMENTO ----
-    subtitulo = (emp.get("subtitulo") or "").strip()
-    titulo_orc = "ORÇAMENTO" + (f" ({subtitulo})" if subtitulo else "")
-    info_numero = (f"<para align='right'><font size=14 color='{cor_primaria_hex}'><b>{titulo_orc}</b></font><br/>"
-                   f"<b>Nº {dados.get('numero','')}</b><br/>"
-                   f"Data: {datetime.now().strftime('%d/%m/%Y')}</para>")
-    elementos.extend(montar_cabecalho(info_numero))
+    # Itens
+    secao("ITENS DO ORÇAMENTO")
+    _tabela_itens(pdf, dados["itens"], cw, primary)
+    pdf.ln(2)
 
-    # ---- Cliente ----
-    cli = dados["cliente"]
-    elementos.append(secao("DADOS DO CLIENTE"))
-    elementos.append(Spacer(1, 4))
-    info_cli = (f"<b>Nome:</b> {cli.get('nome','')}<br/>"
-                f"<b>CPF/CNPJ:</b> {cli.get('documento') or '—'} &nbsp;&nbsp; "
-                f"<b>Telefone:</b> {cli.get('telefone') or '—'}<br/>"
-                f"<b>Endereço:</b> {cli.get('endereco') or '—'}<br/>"
-                f"<b>E-mail:</b> {cli.get('email') or '—'}")
-    elementos.append(Paragraph(info_cli, st_normal))
-    elementos.append(Spacer(1, 12))
+    # Totais
+    _totais(pdf, dados, cw, primary)
+    pdf.ln(3)
 
-    # ---- Itens ----
-    elementos.append(secao("ITENS DO ORÇAMENTO"))
-    elementos.append(Spacer(1, 4))
+    # Condições comerciais
+    if dados.get("termos"):
+        secao("CONDIÇÕES COMERCIAIS E PRAZOS")
+        texto_bloco(dados["termos"])
+        pdf.ln(3)
+
+    # Assinatura
+    pdf.ln(4)
+    pdf.set_text_color(*TEXT_PRIMARY)
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.cell(cw, 5, "_________________________________________", align="C",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "B", 9.5)
+    pdf.cell(cw, 5, "Assinatura do Prestador", align="C",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.cell(cw, 5, S(emp.get("nome", "")), align="C",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    if emp.get("cnpj"):
+        pdf.cell(cw, 5, S(f"CNPJ: {emp['cnpj']}"), align="C",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    # ================= PÁGINA 2: ORDEM DE SERVIÇO =================
+    if dados.get("ordem_servico"):
+        pdf.add_page()
+        cabecalho("ORDEM DE\nSERVIÇO", dados.get("numero", ""), ref_label="Ref. Orç. Nº")
+        # (subtítulo não se aplica à ordem de serviço)
+        secao("DADOS DA CONTRATANTE")
+        par_rotulo("Nome:", cli.get("nome"))
+        par_rotulo("Documento:", cli.get("documento"))
+        par_rotulo("Endereço:", cli.get("endereco"))
+        par_rotulo("Telefone:", cli.get("telefone"))
+        par_rotulo("E-mail:", cli.get("email"))
+        pdf.ln(2)
+        secao("CONDIÇÕES DA ORDEM DE SERVIÇO")
+        texto_bloco(dados["ordem_servico"])
+        pdf.ln(2)
+        _fotos(pdf, dados, cw, primary, incluir_fotos, secao)
+    else:
+        _fotos(pdf, dados, cw, primary, incluir_fotos, secao)
+
+    pdf.output(caminho)
+    return caminho
+
+
+def _tabela_itens(pdf, itens, cw, primary):
+    col = [cw - (15 + 15 + 27 + 27), 15, 15, 27, 27]
+    aligns = ["L", "C", "C", "R", "R"]
     cabec = ["Descrição", "Qtd", "Unid.", "Valor Unit.", "Total"]
-    linhas = [cabec]
-    for it in dados["itens"]:
+    # cabeçalho
+    pdf.set_fill_color(*primary)
+    pdf.set_text_color(*WHITE)
+    pdf.set_font("Helvetica", "B", 9.5)
+    for w, a, t in zip(col, aligns, cabec):
+        pdf.cell(w, 7, S(t), align=a, fill=True, border=0)
+    pdf.ln(7)
+    # linhas
+    pdf.set_text_color(*TEXT_PRIMARY)
+    pdf.set_draw_color(*BORDER)
+    pdf.set_line_width(0.2)
+    for idx, it in enumerate(itens):
         qtd = it["quantidade"]
         qtd_fmt = int(qtd) if float(qtd).is_integer() else qtd
-        linhas.append([
-            Paragraph(str(it["descricao"]), st_desc),
-            str(qtd_fmt),
-            str(it["unidade"]),
-            fmt_moeda(it["valor_unitario"]),
-            fmt_moeda(it["total"]),
-        ])
-    col_w = [largura - (18 + 18 + 30 + 30) * mm, 18 * mm, 18 * mm, 30 * mm, 30 * mm]
-    tabela = Table(linhas, colWidths=col_w, repeatRows=1)
-    estilo_tab = [
-        ("BACKGROUND", (0, 0), (-1, 0), cor_primaria),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 9.5),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-        ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.4, cor_borda),
-    ]
-    for i in range(1, len(linhas)):
-        if i % 2 == 0:
-            estilo_tab.append(("BACKGROUND", (0, i), (-1, i), cor_clara))
-    tabela.setStyle(TableStyle(estilo_tab))
-    elementos.append(tabela)
-    elementos.append(Spacer(1, 8))
+        valores = [S(it["descricao"]), str(qtd_fmt), S(it["unidade"]),
+                   fmt_moeda(it["valor_unitario"]), fmt_moeda(it["total"])]
+        # altura da linha depende da descrição
+        pdf.set_font("Helvetica", "", 9.5)
+        linhas_desc = pdf.multi_cell(col[0], 5, valores[0], dry_run=True,
+                                     output="LINES", new_x=XPos.LEFT, new_y=YPos.TOP)
+        alt = max(7, 5 * len(linhas_desc) + 2)
+        # quebra de página se necessário
+        if pdf.get_y() + alt > pdf.page_break_trigger:
+            pdf.add_page()
+        fill = (idx % 2 == 1)
+        if fill:
+            pdf.set_fill_color(*ROW_EVEN)
+        x0, y0 = pdf.get_x(), pdf.get_y()
+        # descrição (multi-linha)
+        pdf.multi_cell(col[0], alt / max(1, len(linhas_desc)), valores[0],
+                       border="B", align="L", fill=fill,
+                       new_x=XPos.RIGHT, new_y=YPos.TOP, max_line_height=5)
+        pdf.set_xy(x0 + col[0], y0)
+        for w, a, v in zip(col[1:], aligns[1:], valores[1:]):
+            pdf.cell(w, alt, v, align=a, border="B", fill=fill)
+        pdf.ln(alt)
 
-    # ---- Totais ----
-    tot_linhas = [["Subtotal:", fmt_moeda(dados["total_bruto"])]]
+
+def _totais(pdf, dados, cw, primary):
+    lab_w = cw - 55
+    val_w = 55
+    pdf.set_text_color(*TEXT_PRIMARY)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(lab_w, 6, "Subtotal:", align="R")
+    pdf.cell(val_w, 6, fmt_moeda(dados["total_bruto"]), align="R",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     if dados.get("desconto_calculado"):
         if dados.get("desconto_tipo") == "percentual":
-            rotulo = f"Desconto ({dados['desconto_valor']:g}%):"
+            rot = f"Desconto ({dados['desconto_valor']:g}%):"
         else:
-            rotulo = "Desconto:"
-        tot_linhas.append([rotulo, f"- {fmt_moeda(dados['desconto_calculado'])}"])
-    tot_linhas.append(["TOTAL:", fmt_moeda(dados["total_final"])])
-    tab_tot = Table(tot_linhas, colWidths=[largura - 55 * mm, 55 * mm])
-    tab_tot.setStyle(TableStyle([
-        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, -1), (-1, -1), 12),
-        ("TEXTCOLOR", (0, -1), (-1, -1), cor_primaria),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.8, cor_primaria),
-        ("TOPPADDING", (0, -1), (-1, -1), 6),
-    ]))
-    elementos.append(tab_tot)
-    elementos.append(Spacer(1, 14))
+            rot = "Desconto:"
+        pdf.cell(lab_w, 6, S(rot), align="R")
+        pdf.cell(val_w, 6, "- " + fmt_moeda(dados["desconto_calculado"]), align="R",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    # linha + total
+    y = pdf.get_y()
+    pdf.set_draw_color(*primary)
+    pdf.set_line_width(0.4)
+    pdf.line(pdf.l_margin + lab_w, y, pdf.l_margin + cw, y)
+    pdf.ln(1)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*primary)
+    pdf.cell(lab_w, 8, "TOTAL:", align="R")
+    pdf.cell(val_w, 8, fmt_moeda(dados["total_final"]), align="R",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # ---- Condições comerciais ----
-    if dados.get("termos"):
-        elementos.append(secao("CONDIÇÕES COMERCIAIS E PRAZOS"))
-        elementos.append(Spacer(1, 4))
-        elementos.append(Paragraph(_texto_formatado(dados["termos"]), st_termos))
-        elementos.append(Spacer(1, 18))
 
-    # ---- Assinatura ----
-    assinatura = (f"<para align='center'>_________________________________________<br/>"
-                  f"<b>Assinatura do Prestador</b><br/>{emp.get('nome','')}<br/>"
-                  f"CNPJ: {emp.get('cnpj','')}</para>")
-    elementos.append(Spacer(1, 10))
-    elementos.append(Paragraph(assinatura, st_normal))
-
-    def blocos_fotos():
-        if not (incluir_fotos and dados.get("fotos")):
-            return []
-        col_foto = (largura - 8 * mm) / 2
-        celulas = []
-        for p in dados["fotos"]:
-            if os.path.exists(p):
-                try:
-                    celulas.append(_imagem_redimensionada(p, col_foto, 70 * mm))
-                except Exception:
-                    pass
-        if not celulas:
-            return []
-        blocos = [secao("REGISTRO FOTOGRÁFICO"), Spacer(1, 6)]
-        for i in range(0, len(celulas), 2):
-            par = celulas[i:i + 2]
-            if len(par) == 1:
-                par.append("")
-            t_foto = Table([par], colWidths=[col_foto, col_foto])
-            t_foto.setStyle(TableStyle([
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ]))
-            blocos.append(t_foto)
-        return blocos
-
-    # ---- Ordem de serviço ----
-    if dados.get("ordem_servico"):
-        elementos.append(PageBreak())
-        info_os = (f"<para align='right'><font size=14 color='{cor_primaria_hex}'><b>ORDEM DE SERVIÇO</b></font><br/>"
-                   f"Ref. Orçamento Nº {dados.get('numero','')}<br/>"
-                   f"Data: {datetime.now().strftime('%d/%m/%Y')}</para>")
-        elementos.extend(montar_cabecalho(info_os))
-        elementos.append(secao("DADOS DA CONTRATANTE"))
-        elementos.append(Spacer(1, 4))
-        info_contratante = (f"<b>Nome:</b> {cli.get('nome','')}<br/>"
-                            f"<b>Documento:</b> {cli.get('documento') or '—'}<br/>"
-                            f"<b>Endereço:</b> {cli.get('endereco') or '—'}<br/>"
-                            f"<b>Telefone:</b> {cli.get('telefone') or '—'}<br/>"
-                            f"<b>E-mail:</b> {cli.get('email') or '—'}")
-        elementos.append(Paragraph(info_contratante, st_normal))
-        elementos.append(Spacer(1, 12))
-        elementos.append(secao("CONDIÇÕES DA ORDEM DE SERVIÇO"))
-        elementos.append(Spacer(1, 4))
-        elementos.append(Paragraph(_texto_formatado(dados["ordem_servico"]), st_termos))
-        elementos.append(Spacer(1, 12))
-        elementos.extend(blocos_fotos())
-    else:
-        elementos.extend(blocos_fotos())
-
-    doc.build(elementos)
-    return caminho
+def _fotos(pdf, dados, cw, primary, incluir, secao):
+    if not (incluir and dados.get("fotos")):
+        return
+    validas = [p for p in dados["fotos"] if p and os.path.exists(p)]
+    if not validas:
+        return
+    secao("REGISTRO FOTOGRÁFICO")
+    col_w = (cw - 6) / 2
+    max_h = 65
+    i = 0
+    while i < len(validas):
+        par = validas[i:i + 2]
+        # altura da linha = maior imagem
+        alturas = []
+        dims = []
+        for p in par:
+            w, h = _img_size(p, col_w, max_h)
+            dims.append((w, h))
+            alturas.append(h)
+        row_h = max(alturas) + 4
+        if pdf.get_y() + row_h > pdf.page_break_trigger:
+            pdf.add_page()
+        y0 = pdf.get_y()
+        for j, p in enumerate(par):
+            w, h = dims[j]
+            x = pdf.l_margin + j * (col_w + 6) + (col_w - w) / 2
+            try:
+                pdf.image(p, x=x, y=y0, w=w, h=h)
+            except Exception:
+                pass
+        pdf.set_y(y0 + row_h)
+        i += 2
