@@ -23,6 +23,10 @@ android.archs = arm64-v8a
 android.accept_sdk_license = True
 android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 
+# Fixa o python-for-android numa versão estável (usa Python 3.11, compatível
+# com Kivy 2.3.0). O p4a mais novo compila Python 3.14 e quebra o build do Kivy.
+p4a.branch = v2024.01.21
+
 [buildozer]
 log_level = 2
 warn_on_root = 0
