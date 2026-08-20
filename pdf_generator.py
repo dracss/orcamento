@@ -11,10 +11,12 @@ Estrutura:
 import os
 from datetime import datetime
 
-from fpdf import FPDF
-from fpdf.enums import XPos, YPos
-
 from util import fmt_moeda
+
+# Obs.: o fpdf2 é importado de forma "preguiçosa" dentro de gerar_pdf() (e não no
+# topo do módulo) para que, se por algum motivo a biblioteca falhar ao importar no
+# Android, isso NÃO derrube a abertura do app — apenas a geração do PDF acusaria o
+# erro, de forma controlada.
 
 # --- cores ---
 TEXT_PRIMARY = (43, 47, 56)
@@ -43,12 +45,13 @@ def _hex_rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
-class OrcamentoPDF(FPDF):
-    def __init__(self, primary):
-        super().__init__(orientation="P", unit="mm", format="A4")
-        self.primary = primary
-        self.set_margins(18, 15, 18)
-        self.set_auto_page_break(True, margin=15)
+def _novo_pdf():
+    """Cria e configura um documento fpdf2. O import é feito aqui (preguiçoso)."""
+    from fpdf import FPDF
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(18, 15, 18)
+    pdf.set_auto_page_break(True, margin=15)
+    return pdf
 
 
 def _img_size(path, max_w, max_h):
@@ -64,7 +67,7 @@ def _img_size(path, max_w, max_h):
 
 def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
     primary = _hex_rgb(cor_primaria_hex)
-    pdf = OrcamentoPDF(primary)
+    pdf = _novo_pdf()
     cw = pdf.epw  # largura útil (content width)
     emp = dados["empresa"]
     cli = dados["cliente"]
@@ -75,7 +78,7 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
         pdf.set_text_color(*WHITE)
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(cw, 7, "  " + S(titulo), fill=True,
-                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                 new_x="LMARGIN", new_y="NEXT")
         pdf.set_text_color(*TEXT_PRIMARY)
         pdf.ln(1.5)
 
@@ -104,7 +107,7 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
         pdf.set_text_color(*TEXT_SECONDARY)
         pdf.set_font("Helvetica", "B", 10)
         pdf.cell(larg_emp, 5, S(emp.get("nome", "")),
-                 new_x=XPos.LEFT, new_y=YPos.NEXT)
+                 new_x="LEFT", new_y="NEXT")
         pdf.set_x(x_texto)
         pdf.set_font("Helvetica", "", 8.5)
         info = []
@@ -116,7 +119,7 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
         if contato:
             info.append(contato)
         pdf.multi_cell(larg_emp, 4.3, S("\n".join(info)),
-                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                       new_x="LMARGIN", new_y="NEXT")
         y_emp = pdf.get_y()
         # ---- bloco direito: título / (subtítulo) / número / data ----
         rx = pdf.l_margin + cw - larg_dir
@@ -124,21 +127,21 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
         pdf.set_text_color(*primary)
         pdf.set_font("Helvetica", "B", 15)
         pdf.multi_cell(larg_dir, 6.5, S(titulo_dir), align="R",
-                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                       new_x="LMARGIN", new_y="NEXT")
         if subtitulo:
             pdf.set_x(rx)
             pdf.set_font("Helvetica", "B", 8.5)
             pdf.multi_cell(larg_dir, 4.2, S(f"({subtitulo})"), align="R",
-                           new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                           new_x="LMARGIN", new_y="NEXT")
         pdf.set_x(rx)
         pdf.set_text_color(*TEXT_SECONDARY)
         pdf.set_font("Helvetica", "B", 9)
         pdf.multi_cell(larg_dir, 4.6, S(f"{ref_label} {num}"), align="R",
-                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                       new_x="LMARGIN", new_y="NEXT")
         pdf.set_x(rx)
         pdf.set_font("Helvetica", "", 8.5)
         pdf.multi_cell(larg_dir, 4.6, S("Data: " + datetime.now().strftime("%d/%m/%Y")),
-                       align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                       align="R", new_x="LMARGIN", new_y="NEXT")
         y_dir = pdf.get_y()
         # desce até abaixo do bloco mais alto
         pdf.set_y(max(y_emp, y_dir, top + 22))
@@ -155,7 +158,7 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
             if base == "":
                 pdf.ln(2.2)
             else:
-                pdf.multi_cell(cw, 4.6, S(ln), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                pdf.multi_cell(cw, 4.6, S(ln), new_x="LMARGIN", new_y="NEXT")
 
     def par_rotulo(rotulo, valor):
         pdf.set_font("Helvetica", "B", 9.5)
@@ -164,7 +167,7 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
         pdf.cell(w, 5, S(rotulo))
         pdf.set_font("Helvetica", "", 9.5)
         pdf.multi_cell(cw - w, 5, S(valor or "-"),
-                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                       new_x="LMARGIN", new_y="NEXT")
 
     # ================= PÁGINA 1: ORÇAMENTO =================
     pdf.add_page()
@@ -201,16 +204,16 @@ def gerar_pdf(caminho, dados, cor_primaria_hex="#4C6FD0", incluir_fotos=True):
     pdf.set_text_color(*TEXT_PRIMARY)
     pdf.set_font("Helvetica", "", 9.5)
     pdf.cell(cw, 5, "_________________________________________", align="C",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "B", 9.5)
     pdf.cell(cw, 5, "Assinatura do Prestador", align="C",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9.5)
     pdf.cell(cw, 5, S(emp.get("nome", "")), align="C",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             new_x="LMARGIN", new_y="NEXT")
     if emp.get("cnpj"):
         pdf.cell(cw, 5, S(f"CNPJ: {emp['cnpj']}"), align="C",
-                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                 new_x="LMARGIN", new_y="NEXT")
 
     # ================= PÁGINA 2: ORDEM DE SERVIÇO =================
     if dados.get("ordem_servico"):
@@ -258,7 +261,7 @@ def _tabela_itens(pdf, itens, cw, primary):
         # altura da linha depende da descrição
         pdf.set_font("Helvetica", "", 9.5)
         linhas_desc = pdf.multi_cell(col[0], 5, valores[0], dry_run=True,
-                                     output="LINES", new_x=XPos.LEFT, new_y=YPos.TOP)
+                                     output="LINES", new_x="LEFT", new_y="TOP")
         alt = max(7, 5 * len(linhas_desc) + 2)
         # quebra de página se necessário
         if pdf.get_y() + alt > pdf.page_break_trigger:
@@ -270,7 +273,7 @@ def _tabela_itens(pdf, itens, cw, primary):
         # descrição (multi-linha)
         pdf.multi_cell(col[0], alt / max(1, len(linhas_desc)), valores[0],
                        border="B", align="L", fill=fill,
-                       new_x=XPos.RIGHT, new_y=YPos.TOP, max_line_height=5)
+                       new_x="RIGHT", new_y="TOP", max_line_height=5)
         pdf.set_xy(x0 + col[0], y0)
         for w, a, v in zip(col[1:], aligns[1:], valores[1:]):
             pdf.cell(w, alt, v, align=a, border="B", fill=fill)
@@ -284,7 +287,7 @@ def _totais(pdf, dados, cw, primary):
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(lab_w, 6, "Subtotal:", align="R")
     pdf.cell(val_w, 6, fmt_moeda(dados["total_bruto"]), align="R",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             new_x="LMARGIN", new_y="NEXT")
     if dados.get("desconto_calculado"):
         if dados.get("desconto_tipo") == "percentual":
             rot = f"Desconto ({dados['desconto_valor']:g}%):"
@@ -292,7 +295,7 @@ def _totais(pdf, dados, cw, primary):
             rot = "Desconto:"
         pdf.cell(lab_w, 6, S(rot), align="R")
         pdf.cell(val_w, 6, "- " + fmt_moeda(dados["desconto_calculado"]), align="R",
-                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                 new_x="LMARGIN", new_y="NEXT")
     # linha + total
     y = pdf.get_y()
     pdf.set_draw_color(*primary)
@@ -303,7 +306,7 @@ def _totais(pdf, dados, cw, primary):
     pdf.set_text_color(*primary)
     pdf.cell(lab_w, 8, "TOTAL:", align="R")
     pdf.cell(val_w, 8, fmt_moeda(dados["total_final"]), align="R",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             new_x="LMARGIN", new_y="NEXT")
 
 
 def _fotos(pdf, dados, cw, primary, incluir, secao):

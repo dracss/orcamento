@@ -11,6 +11,8 @@ Porta o sistema desktop original (JM Serviços) para o celular, com:
     restauração a partir de arquivo
 """
 import os
+import sys
+import traceback
 from datetime import datetime
 
 from kivy.lang import Builder
@@ -45,6 +47,47 @@ PALETAS = {
     "Red": "#C0392B", "Purple": "#9C27B0", "BlueGray": "#607D8B", "Brown": "#795548",
 }
 UNIDADES = ["un", "m", "m²", "m³", "km", "kg", "h", "dia", "vb", "serviço", "peça"]
+
+
+# ---------------------------------------------------------------------------
+# Registro de erros em arquivo — grava a causa de qualquer crash num arquivo
+# recuperável (Android/data/<pacote>/files/OrcamentosJM/orcamentosjm_erro.txt),
+# para diagnóstico quando não há acesso ao logcat.
+# ---------------------------------------------------------------------------
+def _crash_dir():
+    try:
+        from jnius import autoclass
+        act = autoclass("org.kivy.android.PythonActivity").mActivity
+        ext = act.getExternalFilesDir(None)
+        if ext is not None:
+            d = os.path.join(ext.getAbsolutePath(), "OrcamentosJM")
+            os.makedirs(d, exist_ok=True)
+            return d
+    except Exception:
+        pass
+    for env in ("ANDROID_PRIVATE", "EXTERNAL_STORAGE"):
+        p = os.environ.get(env)
+        if p and os.path.isdir(p):
+            return p
+    return os.getcwd()
+
+
+def registrar_crash(txt):
+    try:
+        caminho = os.path.join(_crash_dir(), "orcamentosjm_erro.txt")
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(txt)
+        print("CRASH salvo em:", caminho)
+    except Exception as e:
+        print("Falha ao salvar crash:", e)
+
+
+def _excepthook(tipo, valor, tb):
+    registrar_crash("".join(traceback.format_exception(tipo, valor, tb)))
+    sys.__excepthook__(tipo, valor, tb)
+
+
+sys.excepthook = _excepthook
 
 
 def make_field(hint, valor="", multiline=False, **kw):
@@ -1139,4 +1182,8 @@ class OrcamentosApp(MDApp):
 
 
 if __name__ == "__main__":
-    OrcamentosApp().run()
+    try:
+        OrcamentosApp().run()
+    except Exception:
+        registrar_crash(traceback.format_exc())
+        raise

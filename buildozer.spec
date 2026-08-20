@@ -6,7 +6,7 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,json,ttf
 source.exclude_patterns = _test_*.py,_t2.py,_t3.py,_saida_teste.pdf,vis_*.png,limpo_*.png,iso_*.png,_shot_*.png,dados_orcamentosjm/*
 version = 1.0
-requirements = python3,kivy==2.3.0,kivymd==1.1.1,pillow,fpdf2,plyer,android
+requirements = python3,kivy==2.3.0,kivymd==1.1.1,pillow,fpdf2,fonttools,defusedxml,plyer,android
 orientation = portrait
 fullscreen = 0
 
