@@ -90,6 +90,39 @@ def _excepthook(tipo, valor, tb):
 sys.excepthook = _excepthook
 
 
+# Captura QUALQUER erro em tempo de execução (no laço de eventos do Kivy),
+# grava em arquivo e MOSTRA na tela num popup — em vez de fechar o app.
+_erro_ja_mostrado = {"v": False}
+
+
+def _instalar_captura_erros():
+    from kivy.base import ExceptionHandler, ExceptionManager
+
+    class _Handler(ExceptionHandler):
+        def handle_exception(self, inst):
+            tb = traceback.format_exc()
+            registrar_crash(tb)
+            if not _erro_ja_mostrado["v"]:
+                _erro_ja_mostrado["v"] = True
+                try:
+                    from kivy.uix.scrollview import ScrollView
+                    from kivy.uix.label import Label
+                    from kivy.uix.popup import Popup
+                    lbl = Label(text=tb, size_hint_y=None, halign="left", valign="top",
+                                padding=(10, 10))
+                    lbl.bind(width=lambda *a: setattr(lbl, "text_size", (lbl.width, None)),
+                             texture_size=lambda *a: setattr(lbl, "height", lbl.texture_size[1]))
+                    sv = ScrollView()
+                    sv.add_widget(lbl)
+                    Popup(title="Erro (tire um print e envie ao suporte)",
+                          content=sv, size_hint=(0.95, 0.9)).open()
+                except Exception:
+                    pass
+            return ExceptionManager.PASS
+
+    ExceptionManager.add_handler(_Handler())
+
+
 def make_field(hint, valor="", multiline=False, **kw):
     """Cria um MDTextField já no modo 'rectangle'.
 
@@ -274,6 +307,7 @@ class OrcamentosApp(MDApp):
     titulo_app = StringProperty("Orçamentos JM")
 
     def build(self):
+        _instalar_captura_erros()
         self.db = Database()
         cfg = self.db.config()
         self.theme_cls.theme_style = cfg.get("tema", "Light")
@@ -287,8 +321,14 @@ class OrcamentosApp(MDApp):
         return Builder.load_string(KV)
 
     def on_start(self):
-        self._pedir_permissoes()
-        self.refresh_dashboard()
+        try:
+            self._pedir_permissoes()
+        except Exception:
+            registrar_crash(traceback.format_exc())
+        try:
+            self.refresh_dashboard()
+        except Exception:
+            registrar_crash(traceback.format_exc())
 
     # ------------------------------------------------------------- utilidades
     def _pedir_permissoes(self):
@@ -931,20 +971,60 @@ class OrcamentosApp(MDApp):
         }
 
     def salvar_orcamento(self, silencioso=False):
-        dados = self._coletar_orcamento()
+        try:
+            dados = self._coletar_orcamento()
+        except Exception as e:
+            self._dialog("Erro", f"Não foi possível ler os dados do formulário:\n{e}",
+                         cancel=False)
+            return False
         if not dados["cliente"]["nome"]:
             self.toast("Informe o nome do cliente.")
             return False
         if not dados["itens"]:
             self.toast("Adicione pelo menos um item.")
             return False
-        oid = self.db.salvar_orcamento(dados)
+        novo = self.orc_editando is None
+        try:
+            oid = self.db.salvar_orcamento(dados)
+        except Exception as e:
+            self._dialog("Erro ao salvar", f"O orçamento não pôde ser salvo:\n{e}",
+                         cancel=False)
+            return False
         self.orc_editando = oid
-        if not silencioso:
-            self.toast("Orçamento salvo.")
+        # Confirma que gravou de fato lendo de volta o número
+        salvo = self.db.obter_orcamento(oid) or {}
+        numero = salvo.get("numero") or dados.get("numero") or ""
+        if self._f_numero.text.strip() != numero:
+            self._f_numero.text = numero
+        self.root.ids.appbar_orc.title = numero or "Orçamento"
         self.refresh_orcamentos()
         self.refresh_dashboard()
+        if not silencioso:
+            self._confirmar_salvo(oid, numero, novo)
         return True
+
+    def _confirmar_salvo(self, oid, numero, novo):
+        titulo = "Orçamento salvo!" if novo else "Orçamento atualizado!"
+        botoes = [
+            MDFlatButton(text="Continuar", on_release=lambda x: self._d.dismiss()),
+            MDFlatButton(text="Ver na lista",
+                         on_release=lambda x: (self._d.dismiss(), self._ver_lista_orcamentos())),
+            MDRaisedButton(text="Gerar PDF",
+                           on_release=lambda x: (self._d.dismiss(), self.gerar_pdf_orcamento())),
+        ]
+        self._d = MDDialog(
+            title=titulo,
+            text=f"Nº {numero} gravado com sucesso.\nJá aparece na aba Orçamentos.",
+            buttons=botoes,
+        )
+        self._d.open()
+
+    def _ver_lista_orcamentos(self):
+        # limpa a busca para o novo item não ficar escondido por um filtro antigo
+        if "busca_orc" in self.root.ids:
+            self.root.ids.busca_orc.text = ""
+        self.voltar_main("tab_orcamentos")
+        self.refresh_orcamentos()
 
     def gerar_pdf_orcamento(self):
         if not self.salvar_orcamento(silencioso=True):
