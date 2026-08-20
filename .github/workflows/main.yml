@@ -43,9 +43,17 @@ jobs:
           key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
 
       - name: Build APK (debug)
-        run: buildozer android debug
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: |
+          for i in 1 2 3 4 5; do
+            echo "===== Tentativa de build $i ====="
+            buildozer android debug && break
+            echo "Tentativa $i falhou (provável limite de download). Aguardando 120s..."
+            sleep 120
+          done
+          echo "== Verificando APK gerado =="
+          ls -la bin/*.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
