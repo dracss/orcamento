@@ -94,19 +94,30 @@ def compartilhar_arquivo(caminho, mime="application/json"):
         Uri = autoclass("android.net.Uri")
         File = autoclass("java.io.File")
         String = autoclass("java.lang.String")
+        VERSION = autoclass("android.os.Build$VERSION")
 
         activity = PythonActivity.mActivity
         arquivo = File(caminho)
 
         uri = None
-        # 1) FileProvider (se o app tiver o provider configurado)
-        try:
-            FileProvider = autoclass("androidx.core.content.FileProvider")
-            authority = activity.getPackageName() + ".fileprovider"
-            uri = FileProvider.getUriForFile(activity, authority, arquivo)
-        except Exception:
-            uri = None
-        # 2) Fallback: file:// com StrictMode desativado
+        # 1) MediaStore (Android 10+/API 29+): copia para a pasta pública Downloads
+        #    e devolve uma URI content:// que OUTROS apps conseguem ler
+        #    (WhatsApp, Drive, e-mail). É a forma que funciona sem FileProvider.
+        if VERSION.SDK_INT >= 29:
+            try:
+                uri = _inserir_no_mediastore(activity, caminho, mime)
+            except Exception as e:
+                print("MediaStore falhou:", e)
+                uri = None
+        # 2) Fallback: FileProvider (se algum dia estiver configurado)
+        if uri is None:
+            try:
+                FileProvider = autoclass("androidx.core.content.FileProvider")
+                authority = activity.getPackageName() + ".fileprovider"
+                uri = FileProvider.getUriForFile(activity, authority, arquivo)
+            except Exception:
+                uri = None
+        # 3) Fallback: file:// com StrictMode desativado (Android antigo)
         if uri is None:
             try:
                 StrictMode = autoclass("android.os.StrictMode")
@@ -127,3 +138,31 @@ def compartilhar_arquivo(caminho, mime="application/json"):
     except Exception as e:
         print("Falha ao compartilhar:", e)
         return False
+
+
+def _inserir_no_mediastore(activity, caminho, mime):
+    """Insere o arquivo na pasta pública Downloads/OrcamentosJM via MediaStore
+    (API 29+) e devolve a URI content:// resultante (legível por outros apps)."""
+    import os as _os
+    from jnius import autoclass
+    ContentValues = autoclass("android.content.ContentValues")
+    MediaStoreDownloads = autoclass("android.provider.MediaStore$Downloads")
+    resolver = activity.getContentResolver()
+
+    nome = _os.path.basename(caminho)
+    values = ContentValues()
+    values.put("_display_name", nome)
+    values.put("mime_type", mime or "application/octet-stream")
+    values.put("relative_path", "Download/OrcamentosJM")
+    uri = resolver.insert(MediaStoreDownloads.EXTERNAL_CONTENT_URI, values)
+    if uri is None:
+        return None
+    out = resolver.openOutputStream(uri)
+    try:
+        with open(caminho, "rb") as f:
+            dados = f.read()
+        out.write(dados, 0, len(dados))
+        out.flush()
+    finally:
+        out.close()
+    return uri
