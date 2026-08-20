@@ -23,6 +23,10 @@ android.archs = arm64-v8a
 android.accept_sdk_license = True
 android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 
+# Exclui do pacote os .so compilados do fonttools (vêm na arquitetura do PC e
+# quebram no ARM do celular). Assim o Python usa as versões .py equivalentes.
+android.blacklist_src = blacklist.txt
+
 # Fixa o python-for-android numa versão estável (usa Python 3.11, compatível
 # com Kivy 2.3.0). O p4a mais novo compila Python 3.14 e quebra o build do Kivy.
 p4a.branch = v2024.01.21
