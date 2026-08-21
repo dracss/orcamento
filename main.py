@@ -37,6 +37,7 @@ from database import Database, termos_padrao, ordem_servico_padrao
 from util import fmt_moeda, parse_num
 from pdf_generator import gerar_pdf
 import backup as backup_mod
+from androidpicker import escolher_imagem
 from paths import shared_dir, is_android
 
 
@@ -911,31 +912,20 @@ class OrcamentosApp(MDApp):
         if len(self.fotos_atuais) >= 4:
             self.toast("Máximo de 4 fotos.")
             return
-        try:
-            from plyer import filechooser
-            filechooser.open_file(on_selection=self._foto_selecionada,
-                                  filters=[["Imagens", "*.png", "*.jpg", "*.jpeg"]])
-        except Exception as e:
-            self.toast("Seletor de arquivos indisponível.")
-            print("filechooser erro:", e)
+        escolher_imagem(self._foto_selecionada, prefixo="foto")
 
-    def _foto_selecionada(self, selection):
-        if selection:
-            self.fotos_atuais.append(selection[0])
+    def _foto_selecionada(self, caminho):
+        if caminho:
+            self.fotos_atuais.append(caminho)
             self._lbl_fotos.text = self._texto_fotos()
             self.toast("Foto adicionada.")
 
     def _escolher_logo_orc(self):
-        try:
-            from plyer import filechooser
-            filechooser.open_file(on_selection=self._logo_orc_selecionada,
-                                  filters=[["Imagens", "*.png", "*.jpg", "*.jpeg"]])
-        except Exception:
-            self.toast("Seletor de arquivos indisponível.")
+        escolher_imagem(self._logo_orc_selecionada, prefixo="logo")
 
-    def _logo_orc_selecionada(self, selection):
-        if selection:
-            self._logo_orc = selection[0]
+    def _logo_orc_selecionada(self, caminho):
+        if caminho:
+            self._logo_orc = caminho
             self._lbl_logo.text = self._nome_logo(self._logo_orc)
 
     def _coletar_orcamento(self):
@@ -1154,16 +1144,11 @@ class OrcamentosApp(MDApp):
         self.toast(f"Cor: {nome}")
 
     def _escolher_logo_config(self):
-        try:
-            from plyer import filechooser
-            filechooser.open_file(on_selection=self._logo_config_selecionada,
-                                  filters=[["Imagens", "*.png", "*.jpg", "*.jpeg"]])
-        except Exception:
-            self.toast("Seletor de arquivos indisponível.")
+        escolher_imagem(self._logo_config_selecionada, prefixo="logo")
 
-    def _logo_config_selecionada(self, selection):
-        if selection:
-            self._c_logo = selection[0]
+    def _logo_config_selecionada(self, caminho):
+        if caminho:
+            self._c_logo = caminho
             self._c_lbl_logo.text = self._nome_logo(self._c_logo)
 
     def salvar_config_form(self):
