@@ -31,27 +31,12 @@ def data_dir() -> str:
 
 
 def shared_dir() -> str:
-    """Diretório para PDFs e backups (externo do app, compartilhável)."""
-    if is_android():
-        try:
-            from jnius import autoclass
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            activity = PythonActivity.mActivity
-            ext = activity.getExternalFilesDir(None)
-            if ext is not None:
-                base = os.path.join(ext.getAbsolutePath(), "OrcamentosJM")
-                os.makedirs(base, exist_ok=True)
-                return base
-        except Exception:
-            pass
-        # Fallback: pasta pública de Downloads
-        try:
-            from android.storage import primary_external_storage_path
-            base = os.path.join(primary_external_storage_path(), "Download", "OrcamentosJM")
-            os.makedirs(base, exist_ok=True)
-            return base
-        except Exception:
-            pass
+    """Diretório onde PDFs e backups são gerados.
+
+    Usa sempre a pasta interna do app (``user_data_dir``), que é garantidamente
+    gravável em qualquer versão do Android sem exigir permissão. O envio para
+    outros apps e para a pasta pública Downloads é feito depois, via MediaStore
+    (ver backup.compartilhar_arquivo)."""
     base = os.path.join(data_dir(), "arquivos")
     os.makedirs(base, exist_ok=True)
     return base

@@ -1056,8 +1056,10 @@ class OrcamentosApp(MDApp):
             self._dialog("Erro ao gerar PDF", str(e), cancel=False)
             return
         self._dialog(
-            "PDF gerado", f"Salvo em:\n{caminho}\n\nDeseja compartilhar/abrir agora?",
-            on_ok=lambda: self._compartilhar_pdf(caminho), ok_text="Compartilhar")
+            "PDF gerado com sucesso!",
+            "Toque em Enviar para compartilhar (WhatsApp, Drive, e-mail...). "
+            "Uma cópia também fica na pasta Downloads/OrcamentosJM do celular.",
+            on_ok=lambda: self._compartilhar_pdf(caminho), ok_text="Enviar")
 
     def _compartilhar_pdf(self, caminho):
         if is_android():
