@@ -37,7 +37,7 @@ from database import Database, termos_padrao, ordem_servico_padrao
 from util import fmt_moeda, parse_num
 from pdf_generator import gerar_pdf
 import backup as backup_mod
-from androidpicker import escolher_imagem
+from androidpicker import escolher_imagem, escolher_arquivo
 from paths import shared_dir, is_android
 
 
@@ -1205,17 +1205,21 @@ class OrcamentosApp(MDApp):
             self.toast("Backup gerado (desktop).")
 
     def restaurar(self):
-        try:
-            from plyer import filechooser
-            filechooser.open_file(on_selection=self._restaurar_selecionado,
-                                  filters=[["Backup", "*.json"]])
-        except Exception:
-            self.toast("Seletor de arquivos indisponível.")
+        escolher_arquivo(self._restaurar_selecionado, prefixo="backup", ext_padrao=".json")
 
-    def _restaurar_selecionado(self, selection):
-        if not selection:
+    def _restaurar_selecionado(self, caminho):
+        if not caminho:
+            from androidpicker import ultimo_erro
+            motivo = ultimo_erro() or "Não foi possível ler o backup escolhido."
+            self._dialog(
+                "Não consegui abrir o arquivo",
+                motivo + "\n\nDica: salve o arquivo .json em Downloads e, ao restaurar, "
+                "escolha-o pelo app \"Arquivos\"/\"Downloads\".",
+                cancel=False)
             return
-        caminho = selection[0]
+        if not os.path.exists(caminho):
+            self._dialog("Arquivo não encontrado", str(caminho), cancel=False)
+            return
 
         def _do():
             try:
