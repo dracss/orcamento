@@ -67,7 +67,7 @@ jobs:
           name: apk
           path: bin/*.apk
 
-          - name: Publicar Release (link fixo, sempre com o APK mais novo)
+       - name: Publicar Release (link fixo, sempre com o APK mais novo)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
