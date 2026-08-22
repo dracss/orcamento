@@ -25,7 +25,8 @@ from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.button import MDFlatButton, MDRaisedButton, MDIconButton
 from kivymd.uix.card import MDCard
 from kivymd.uix.dialog import MDDialog
-from kivymd.uix.label import MDLabel
+from kivymd.uix.label import MDLabel, MDIcon
+from kivy.uix.image import Image as KivyImage
 from kivymd.uix.list import (
     OneLineListItem, TwoLineListItem, TwoLineAvatarIconListItem,
     ThreeLineAvatarIconListItem, IconLeftWidget, IconRightWidget,
@@ -48,6 +49,21 @@ PALETAS = {
     "Red": "#C0392B", "Purple": "#9C27B0", "BlueGray": "#607D8B", "Brown": "#795548",
 }
 UNIDADES = ["un", "m", "m²", "m³", "km", "kg", "h", "dia", "vb", "serviço", "peça"]
+
+# Cores de destaque dos cartões de métricas e dos status (visual moderno)
+ACCENT_METRICAS = ["#4C6FD0", "#2FA56C", "#F2A93B", "#7E57C2"]
+STATUS_CORES = {"Rascunho": "#9AA3B2", "Enviado": "#4A90D9",
+                "Aprovado": "#2FA56C", "Recusado": "#C0392B"}
+
+
+def _cor(hexs):
+    return get_color_from_hex(hexs)
+
+
+def _cor_alpha(hexs, a):
+    c = list(get_color_from_hex(hexs))
+    c[3] = a
+    return c
 
 
 # ---------------------------------------------------------------------------
@@ -398,52 +414,50 @@ class OrcamentosApp(MDApp):
         m = self.db.metricas()
         emp = self.db.empresa()
 
-        header = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(2))
-        header.add_widget(MDLabel(text=emp.get("nome") or "Sua Empresa",
-                                  font_style="H5", bold=True, adaptive_height=True))
-        header.add_widget(MDLabel(text=datetime.now().strftime("Hoje é %d/%m/%Y"),
-                                  theme_text_color="Secondary", adaptive_height=True))
-        box.add_widget(header)
+        # ---- Cabeçalho colorido com logo + nome + data ----
+        box.add_widget(self._cabecalho_dashboard(emp))
 
-        grid = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(10))
+        # ---- Métricas (2 x 2) ----
+        grid = MDBoxLayout(orientation="vertical", adaptive_height=True, spacing=dp(12))
         linhas = [
-            [("Orçamentos", str(m["orcamentos"]), "file-document-outline"),
-             ("Clientes", str(m["clientes"]), "account-group-outline")],
-            [("Valor total", fmt_moeda(m["valor_total"]), "cash-multiple"),
-             ("Aprovados", fmt_moeda(m["valor_aprovado"]), "check-decagram-outline")],
+            [("Orçamentos", str(m["orcamentos"]), "file-document-outline", ACCENT_METRICAS[0]),
+             ("Clientes", str(m["clientes"]), "account-group", ACCENT_METRICAS[3])],
+            [("Valor total", fmt_moeda(m["valor_total"]), "cash-multiple", ACCENT_METRICAS[1]),
+             ("Aprovados", fmt_moeda(m["valor_aprovado"]), "check-decagram", ACCENT_METRICAS[2])],
         ]
         for par in linhas:
-            row = MDBoxLayout(adaptive_height=True, spacing=dp(10), size_hint_y=None, height=dp(96))
-            for titulo, valor, icone in par:
-                row.add_widget(self._card_metrica(titulo, valor, icone))
+            row = MDBoxLayout(spacing=dp(12), size_hint_y=None, height=dp(104))
+            for titulo, valor, icone, cor in par:
+                row.add_widget(self._card_metrica(titulo, valor, icone, cor))
             grid.add_widget(row)
         box.add_widget(grid)
 
-        acoes = MDBoxLayout(adaptive_height=True, spacing=dp(10), size_hint_y=None, height=dp(48))
-        acoes.add_widget(MDRaisedButton(text="Novo orçamento", icon="plus",
-                                        on_release=lambda x: self.novo_orcamento()))
-        acoes.add_widget(MDRaisedButton(text="Novo cliente", icon="account-plus",
-                                        on_release=lambda x: self.novo_cliente()))
+        # ---- Ações rápidas ----
+        acoes = MDBoxLayout(spacing=dp(12), size_hint_y=None, height=dp(48))
+        b1 = MDRaisedButton(text="Novo orçamento", icon="plus", size_hint_x=1)
+        b1.bind(on_release=lambda x: self.novo_orcamento())
+        b2 = MDRaisedButton(text="Novo cliente", icon="account-plus", size_hint_x=1,
+                            md_bg_color=_cor(ACCENT_METRICAS[3]))
+        b2.bind(on_release=lambda x: self.novo_cliente())
+        acoes.add_widget(b1)
+        acoes.add_widget(b2)
         box.add_widget(acoes)
 
+        # ---- Recentes ----
         box.add_widget(MDLabel(text="Orçamentos recentes", font_style="H6",
                                bold=True, adaptive_height=True))
         recentes = self.db.listar_orcamentos()[:6]
         if not recentes:
-            box.add_widget(MDLabel(text="Nenhum orçamento ainda. Toque em “Novo orçamento”.",
-                                   theme_text_color="Secondary", adaptive_height=True))
+            vazio = MDCard(size_hint_y=None, height=dp(90), radius=[dp(16)], elevation=0,
+                           md_bg_color=_cor_alpha(ACCENT_METRICAS[0], 0.06),
+                           padding=dp(14))
+            vazio.add_widget(MDLabel(
+                text="Nenhum orçamento ainda.\nToque em “Novo orçamento” para começar.",
+                theme_text_color="Secondary", halign="center"))
+            box.add_widget(vazio)
         else:
-            card = MDCard(orientation="vertical", padding=dp(4), size_hint_y=None,
-                          radius=[dp(12)], elevation=1)
-            card.bind(minimum_height=card.setter("height"))
             for o in recentes:
-                item = TwoLineListItem(
-                    text=f"{o['numero']}  •  {fmt_moeda(o['total'])}",
-                    secondary_text=f"{o.get('cliente_nome') or 'Sem cliente'}  —  {o.get('status','')}",
-                    on_release=lambda x, oid=o["id"]: self.abrir_orcamento(oid),
-                )
-                card.add_widget(item)
-            box.add_widget(card)
+                box.add_widget(self._card_orcamento(o))
 
         box.add_widget(MDFlatButton(text="Sair do aplicativo",
                                     theme_text_color="Custom",
@@ -451,15 +465,90 @@ class OrcamentosApp(MDApp):
                                     pos_hint={"center_x": .5},
                                     on_release=lambda x: self.sair()))
 
-    def _card_metrica(self, titulo, valor, icone):
-        card = MDCard(orientation="vertical", padding=dp(12), radius=[dp(14)],
-                      elevation=2)
-        top = MDBoxLayout(adaptive_height=True, spacing=dp(6), size_hint_y=None, height=dp(32))
-        top.add_widget(MDIconButton(icon=icone, theme_icon_color="Custom",
-                                    icon_color=self.theme_cls.primary_color, disabled=True))
-        top.add_widget(MDLabel(text=titulo, theme_text_color="Secondary", adaptive_height=True))
-        card.add_widget(top)
-        card.add_widget(MDLabel(text=valor, font_style="H6", bold=True, adaptive_height=True))
+    def _cabecalho_dashboard(self, emp):
+        card = MDCard(size_hint_y=None, height=dp(96), radius=[dp(20)],
+                      md_bg_color=self.theme_cls.primary_color, elevation=4,
+                      padding=dp(14), spacing=dp(14))
+        # círculo com logo ou ícone
+        circ = MDCard(size_hint=(None, None), size=(dp(64), dp(64)), radius=[dp(32)],
+                      md_bg_color=(1, 1, 1, 1), elevation=0, padding=dp(6))
+        logo = emp.get("logo_path")
+        if logo and os.path.exists(logo):
+            circ.add_widget(KivyImage(source=logo, allow_stretch=True, keep_ratio=True))
+        else:
+            circ.add_widget(MDIcon(icon="office-building", halign="center",
+                                   theme_text_color="Custom",
+                                   text_color=self.theme_cls.primary_color, font_size="34sp"))
+        card.add_widget(circ)
+        texto = MDBoxLayout(orientation="vertical", spacing=dp(2))
+        texto.add_widget(MDLabel(text=emp.get("nome") or "Sua Empresa",
+                                 font_style="H6", bold=True, theme_text_color="Custom",
+                                 text_color=(1, 1, 1, 1), shorten=True))
+        sub = (emp.get("subtitulo") or "").strip()
+        texto.add_widget(MDLabel(
+            text=sub or datetime.now().strftime("Hoje é %d/%m/%Y"),
+            theme_text_color="Custom", text_color=(1, 1, 1, 0.85), font_style="Caption",
+            shorten=True))
+        card.add_widget(texto)
+        return card
+
+    def _card_metrica(self, titulo, valor, icone, cor_hex):
+        card = MDCard(orientation="vertical", padding=dp(14), radius=[dp(18)],
+                      elevation=2, spacing=dp(6))
+        circ = MDCard(size_hint=(None, None), size=(dp(40), dp(40)), radius=[dp(20)],
+                      md_bg_color=_cor_alpha(cor_hex, 0.16), elevation=0)
+        circ.add_widget(MDIcon(icon=icone, halign="center", theme_text_color="Custom",
+                               text_color=_cor(cor_hex)))
+        card.add_widget(circ)
+        card.add_widget(MDLabel(text=valor, font_style="H6", bold=True, adaptive_height=True,
+                                shorten=True))
+        card.add_widget(MDLabel(text=titulo, theme_text_color="Secondary",
+                                font_style="Caption", adaptive_height=True))
+        return card
+
+    def _chip_status(self, status):
+        cor = STATUS_CORES.get(status, "#9AA3B2")
+        chip = MDCard(size_hint=(None, None), height=dp(24), radius=[dp(12)],
+                      md_bg_color=_cor_alpha(cor, 0.16), elevation=0,
+                      padding=(dp(10), 0))
+        lb = MDLabel(text=status or "Rascunho", theme_text_color="Custom",
+                     text_color=_cor(cor), font_style="Caption", bold=True,
+                     halign="center", valign="center")
+        lb.bind(texture_size=lambda i, v: setattr(chip, "width", v[0] + dp(20)))
+        chip.add_widget(lb)
+        return chip
+
+    def _card_orcamento(self, o, com_menu=False):
+        card = MDCard(size_hint_y=None, height=dp(76), radius=[dp(16)], elevation=1,
+                      padding=(dp(12), dp(8)), spacing=dp(10), ripple_behavior=True)
+        card.bind(on_release=lambda w, oid=o["id"]: self.abrir_orcamento(oid))
+        # ícone à esquerda
+        circ = MDCard(size_hint=(None, None), size=(dp(44), dp(44)), radius=[dp(22)],
+                      md_bg_color=_cor_alpha(ACCENT_METRICAS[0], 0.14), elevation=0,
+                      pos_hint={"center_y": .5})
+        circ.add_widget(MDIcon(icon="file-document-outline", halign="center",
+                               theme_text_color="Custom", text_color=_cor(ACCENT_METRICAS[0])))
+        card.add_widget(circ)
+        meio = MDBoxLayout(orientation="vertical", pos_hint={"center_y": .5})
+        meio.add_widget(MDLabel(text=o["numero"], bold=True, font_style="Subtitle1",
+                                shorten=True))
+        meio.add_widget(MDLabel(text=o.get("cliente_nome") or "Sem cliente",
+                                theme_text_color="Secondary", font_style="Caption",
+                                shorten=True))
+        card.add_widget(meio)
+        dire = MDBoxLayout(orientation="vertical", size_hint_x=None, width=dp(112),
+                           pos_hint={"center_y": .5}, spacing=dp(4))
+        dire.add_widget(MDLabel(text=fmt_moeda(o["total"]), bold=True, halign="right",
+                                font_style="Subtitle2", shorten=True))
+        linha_chip = MDBoxLayout(size_hint_y=None, height=dp(24))
+        linha_chip.add_widget(MDBoxLayout())  # espaçador (empurra chip p/ direita)
+        linha_chip.add_widget(self._chip_status(o.get("status", "Rascunho")))
+        dire.add_widget(linha_chip)
+        card.add_widget(dire)
+        if com_menu:
+            bt = MDIconButton(icon="dots-vertical", pos_hint={"center_y": .5})
+            bt.bind(on_release=lambda w, oid=o["id"], num=o["numero"]: self.menu_orcamento(w, oid, num))
+            card.add_widget(bt)
         return card
 
     # =====================================================================
@@ -472,21 +561,13 @@ class OrcamentosApp(MDApp):
         lista = self.root.ids.lista_orc
         lista.clear_widgets()
         orcs = self.db.listar_orcamentos(filtro)
+        lista.spacing = dp(8)
+        lista.padding = [dp(4), dp(6), dp(4), dp(6)]
         if not orcs:
             lista.add_widget(OneLineListItem(text="Nenhum orçamento encontrado."))
             return
         for o in orcs:
-            item = ThreeLineAvatarIconListItem(
-                text=f"{o['numero']}",
-                secondary_text=f"{o.get('cliente_nome') or 'Sem cliente'}",
-                tertiary_text=f"{fmt_moeda(o['total'])}  •  {o.get('status','Rascunho')}",
-                on_release=lambda x, oid=o["id"]: self.abrir_orcamento(oid),
-            )
-            item.add_widget(IconLeftWidget(icon="file-document-outline"))
-            menu_btn = IconRightWidget(icon="dots-vertical")
-            menu_btn.bind(on_release=lambda w, oid=o["id"], num=o["numero"]: self.menu_orcamento(w, oid, num))
-            item.add_widget(menu_btn)
-            lista.add_widget(item)
+            lista.add_widget(self._card_orcamento(o, com_menu=True))
 
     def menu_orcamento(self, caller, oid, numero):
         itens = [
@@ -532,21 +613,37 @@ class OrcamentosApp(MDApp):
         filtro = self.root.ids.busca_cli.text.strip()
         lista = self.root.ids.lista_cli
         lista.clear_widgets()
+        lista.spacing = dp(8)
+        lista.padding = [dp(4), dp(6), dp(4), dp(6)]
         clientes = self.db.listar_clientes(filtro)
         if not clientes:
             lista.add_widget(OneLineListItem(text="Nenhum cliente cadastrado."))
             return
         for c in clientes:
-            item = TwoLineAvatarIconListItem(
-                text=c["nome"],
-                secondary_text=(c.get("telefone") or c.get("email") or c.get("documento") or "—"),
-                on_release=lambda x, cid=c["id"]: self.ver_orcamentos_cliente(cid),
-            )
-            item.add_widget(IconLeftWidget(icon="account"))
-            menu_btn = IconRightWidget(icon="dots-vertical")
-            menu_btn.bind(on_release=lambda w, cid=c["id"], nome=c["nome"]: self.menu_cliente(w, cid, nome))
-            item.add_widget(menu_btn)
-            lista.add_widget(item)
+            lista.add_widget(self._card_cliente(c))
+
+    def _card_cliente(self, c):
+        card = MDCard(size_hint_y=None, height=dp(68), radius=[dp(16)], elevation=1,
+                      padding=(dp(12), dp(8)), spacing=dp(10), ripple_behavior=True)
+        card.bind(on_release=lambda w, cid=c["id"]: self.ver_orcamentos_cliente(cid))
+        circ = MDCard(size_hint=(None, None), size=(dp(44), dp(44)), radius=[dp(22)],
+                      md_bg_color=_cor_alpha(ACCENT_METRICAS[3], 0.16), elevation=0,
+                      pos_hint={"center_y": .5})
+        # inicial do nome
+        inicial = (c["nome"].strip()[:1] or "?").upper()
+        circ.add_widget(MDLabel(text=inicial, halign="center", bold=True,
+                                theme_text_color="Custom", text_color=_cor(ACCENT_METRICAS[3])))
+        card.add_widget(circ)
+        meio = MDBoxLayout(orientation="vertical", pos_hint={"center_y": .5})
+        meio.add_widget(MDLabel(text=c["nome"], bold=True, font_style="Subtitle1", shorten=True))
+        meio.add_widget(MDLabel(
+            text=(c.get("telefone") or c.get("email") or c.get("documento") or "—"),
+            theme_text_color="Secondary", font_style="Caption", shorten=True))
+        card.add_widget(meio)
+        bt = MDIconButton(icon="dots-vertical", pos_hint={"center_y": .5})
+        bt.bind(on_release=lambda w, cid=c["id"], nome=c["nome"]: self.menu_cliente(w, cid, nome))
+        card.add_widget(bt)
+        return card
 
     def menu_cliente(self, caller, cid, nome):
         itens = [
