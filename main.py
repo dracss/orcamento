@@ -167,6 +167,7 @@ MDScreenManager:
 
     MDScreen:
         name: "main"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -246,6 +247,7 @@ MDScreenManager:
 
     MDScreen:
         name: "form_orcamento"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -263,6 +265,7 @@ MDScreenManager:
 
     MDScreen:
         name: "form_cliente"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -279,6 +282,7 @@ MDScreenManager:
 
     MDScreen:
         name: "ver_cliente"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -291,6 +295,7 @@ MDScreenManager:
 
     MDScreen:
         name: "config"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -306,6 +311,7 @@ MDScreenManager:
 
     MDScreen:
         name: "backup"
+        md_bg_color: app.theme_cls.bg_normal
         MDBoxLayout:
             orientation: "vertical"
             MDTopAppBar:
@@ -336,7 +342,27 @@ class OrcamentosApp(MDApp):
         self.fotos_atuais = []        # caminhos das fotos
         self.desconto_tipo = "valor"
         self.cli_editando = None
-        return Builder.load_string(KV)
+        root = Builder.load_string(KV)
+        # Evita o "flash preto" ao trocar de tela: transição instantânea + fundo
+        # da janela pintado com a cor do tema (nada de preto por trás).
+        try:
+            from kivy.uix.screenmanager import NoTransition
+            root.transition = NoTransition()
+        except Exception:
+            pass
+        try:
+            from kivy.core.window import Window
+            Window.clearcolor = self.theme_cls.bg_normal
+        except Exception:
+            pass
+        return root
+
+    def on_theme_change(self):
+        try:
+            from kivy.core.window import Window
+            Window.clearcolor = self.theme_cls.bg_normal
+        except Exception:
+            pass
 
     def on_start(self):
         try:
@@ -1259,6 +1285,7 @@ class OrcamentosApp(MDApp):
 
     def _set_tema(self, dark):
         self.theme_cls.theme_style = "Dark" if dark else "Light"
+        self.on_theme_change()
 
     def _set_paleta(self, nome):
         self.theme_cls.primary_palette = nome
