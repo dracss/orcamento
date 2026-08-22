@@ -67,15 +67,13 @@ jobs:
           name: apk
           path: bin/*.apk
 
-      - name: Publicar Release (link fixo para baixar/atualizar)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Orçamentos JM — última versão
-          body: |
-            APK mais recente do app Orçamentos JM.
-            Baixe o arquivo .apk abaixo e instale no celular
-            (ative "instalar apps desconhecidos" quando pedir).
-          files: bin/*.apk
-          fail_on_unmatched_files: false
-          make_latest: true
+          - name: Publicar Release (link fixo, sempre com o APK mais novo)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          sleep 3
+          gh release create latest bin/*.apk \
+            --title "Orçamentos JM — última versão" \
+            --notes "APK mais recente do app. Baixe o arquivo .apk e instale no celular (ative 'instalar apps desconhecidos' quando pedir)." \
+            --latest
