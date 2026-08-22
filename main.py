@@ -156,7 +156,7 @@ MDScreenManager:
                 id: appbar
                 title: "Orçamentos JM"
                 elevation: 3
-                right_action_items: [["cloud-upload-outline", lambda x: app.tela_backup()], ["cog-outline", lambda x: app.ir_config()]]
+                right_action_items: [["cloud-upload-outline", lambda x: app.tela_backup()], ["cog-outline", lambda x: app.ir_config()], ["exit-to-app", lambda x: app.sair()]]
             MDBottomNavigation:
                 id: bottom_nav
                 selected_color_background: app.theme_cls.primary_light
@@ -371,6 +371,23 @@ class OrcamentosApp(MDApp):
         self.montar_config()
         self.root.current = "config"
 
+    def sair(self):
+        self._dialog("Sair do aplicativo", "Deseja realmente fechar o app?",
+                     on_ok=self._fechar_app, ok_text="Sair")
+
+    def _fechar_app(self):
+        try:
+            self.db.close()
+        except Exception:
+            pass
+        self.stop()
+        try:
+            # no Android, encerra a atividade para fechar de fato
+            from jnius import autoclass
+            autoclass("org.kivy.android.PythonActivity").mActivity.finish()
+        except Exception:
+            pass
+
     # =====================================================================
     # DASHBOARD
     # =====================================================================
@@ -426,6 +443,12 @@ class OrcamentosApp(MDApp):
                 )
                 card.add_widget(item)
             box.add_widget(card)
+
+        box.add_widget(MDFlatButton(text="Sair do aplicativo",
+                                    theme_text_color="Custom",
+                                    text_color=self.theme_cls.primary_color,
+                                    pos_hint={"center_x": .5},
+                                    on_release=lambda x: self.sair()))
 
     def _card_metrica(self, titulo, valor, icone):
         card = MDCard(orientation="vertical", padding=dp(12), radius=[dp(14)],

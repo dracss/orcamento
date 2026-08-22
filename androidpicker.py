@@ -38,7 +38,24 @@ def _copiar_uri_para_interno(activity, uri, prefixo="img", ext_padrao=".jpg"):
     nome = f"{prefixo}_{abs(hash(uri.toString())) % (10 ** 9)}{ext}"
     destino = os.path.join(_imagens_dir(), nome)
 
-    inp = resolver.openInputStream(uri)
+    # Abre o fluxo de entrada — tenta openInputStream e, se falhar, o descritor
+    # de arquivo (alguns provedores, como Drive/Downloads, funcionam melhor assim)
+    inp = None
+    erro1 = ""
+    try:
+        inp = resolver.openInputStream(uri)
+    except Exception as e:
+        erro1 = str(e)
+        inp = None
+    if inp is None:
+        try:
+            pfd = resolver.openFileDescriptor(uri, "r")
+            FileInputStream = autoclass("java.io.FileInputStream")
+            inp = FileInputStream(pfd.getFileDescriptor())
+        except Exception as e:
+            raise RuntimeError(f"Não consegui abrir o arquivo (openInputStream: {erro1}; "
+                               f"descritor: {e})")
+
     FileOutputStream = autoclass("java.io.FileOutputStream")
     out = FileOutputStream(destino)
     try:
@@ -46,7 +63,7 @@ def _copiar_uri_para_interno(activity, uri, prefixo="img", ext_padrao=".jpg"):
             FileUtils = autoclass("android.os.FileUtils")  # API 29+
             FileUtils.copy(inp, out)
         except Exception:
-            # fallback lento (Android antigo): copia byte a byte
+            # fallback: copia byte a byte (mais lento, mas seguro)
             b = inp.read()
             while b != -1:
                 out.write(b)
