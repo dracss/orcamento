@@ -348,6 +348,11 @@ class OrcamentosApp(MDApp):
         try:
             from kivy.uix.screenmanager import NoTransition
             root.transition = NoTransition()
+            # a barra de abas (MDBottomNavigation) usa FadeTransition por padrão,
+            # que funde passando pelo fundo (o "flash escuro"). Troca por instantânea.
+            bn = root.ids.bottom_nav
+            bn.transition = NoTransition
+            bn.transition_duration = 0
         except Exception:
             pass
         try:
