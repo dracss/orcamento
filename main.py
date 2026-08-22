@@ -93,7 +93,7 @@ sys.excepthook = _excepthook
 
 # Captura QUALQUER erro em tempo de execução (no laço de eventos do Kivy),
 # grava em arquivo e MOSTRA na tela num popup — em vez de fechar o app.
-_erro_ja_mostrado = {"v": False}
+_erro_ja_mostrado = {"last": None}
 
 
 def _instalar_captura_erros():
@@ -103,8 +103,9 @@ def _instalar_captura_erros():
         def handle_exception(self, inst):
             tb = traceback.format_exc()
             registrar_crash(tb)
-            if not _erro_ja_mostrado["v"]:
-                _erro_ja_mostrado["v"] = True
+            # mostra cada erro DISTINTO (evita repetir o mesmo em looping)
+            if tb != _erro_ja_mostrado["last"]:
+                _erro_ja_mostrado["last"] = tb
                 try:
                     from kivy.uix.scrollview import ScrollView
                     from kivy.uix.label import Label
@@ -1208,9 +1209,9 @@ class OrcamentosApp(MDApp):
         box.add_widget(MDRaisedButton(text="Gerar e enviar backup", icon="cloud-upload",
                                       pos_hint={"center_x": .5},
                                       on_release=lambda x: self.fazer_backup()))
-        box.add_widget(MDRaisedButton(text="Restaurar de um arquivo", icon="backup-restore",
+        box.add_widget(MDRaisedButton(text="Restaurar backup", icon="backup-restore",
                                       pos_hint={"center_x": .5},
-                                      on_release=lambda x: self.restaurar()))
+                                      on_release=lambda x: self.menu_restaurar(x)))
         self._lbl_backup = MDLabel(text="", theme_text_color="Secondary", adaptive_height=True)
         box.add_widget(self._lbl_backup)
         self.root.current = "backup"
@@ -1227,7 +1228,32 @@ class OrcamentosApp(MDApp):
         else:
             self.toast("Backup gerado (desktop).")
 
-    def restaurar(self):
+    def menu_restaurar(self, caller):
+        """Mostra os backups que o próprio app salvou (restauração garantida) e
+        também a opção de escolher um arquivo de outro local."""
+        import glob
+        backups = sorted(glob.glob(os.path.join(shared_dir(), "backup_*.json")),
+                         reverse=True)
+        itens = []
+        for b in backups:
+            rotulo = os.path.basename(b).replace("backup_orcamentos_", "").replace(".json", "")
+            # formata AAAAMMDD_HHMMSS -> DD/MM/AAAA HH:MM
+            legivel = rotulo
+            try:
+                d = rotulo.split("_")
+                if len(d) == 2 and len(d[0]) == 8:
+                    legivel = f"{d[0][6:8]}/{d[0][4:6]}/{d[0][0:4]} {d[1][0:2]}:{d[1][2:4]}"
+            except Exception:
+                pass
+            itens.append({"viewclass": "OneLineListItem", "text": f"Backup de {legivel}",
+                          "on_release": (lambda b=b: (self._fecha_menu(),
+                                                      self._confirmar_restaurar(b)))})
+        itens.append({"viewclass": "OneLineListItem", "text": "Escolher arquivo de outro local...",
+                      "on_release": lambda: (self._fecha_menu(), self._restaurar_via_picker())})
+        self._menu = MDDropdownMenu(caller=caller, items=itens, width_mult=5)
+        self._menu.open()
+
+    def _restaurar_via_picker(self):
         escolher_arquivo(self._restaurar_selecionado, prefixo="backup", ext_padrao=".json")
 
     def _restaurar_selecionado(self, caminho):
@@ -1236,10 +1262,13 @@ class OrcamentosApp(MDApp):
             motivo = ultimo_erro() or "Não foi possível ler o backup escolhido."
             self._dialog(
                 "Não consegui abrir o arquivo",
-                motivo + "\n\nDica: salve o arquivo .json em Downloads e, ao restaurar, "
-                "escolha-o pelo app \"Arquivos\"/\"Downloads\".",
+                motivo + "\n\nDica: use a lista de backups do próprio app, ou salve o "
+                ".json em Downloads e escolha-o pelo app \"Arquivos\".",
                 cancel=False)
             return
+        self._confirmar_restaurar(caminho)
+
+    def _confirmar_restaurar(self, caminho):
         if not os.path.exists(caminho):
             self._dialog("Arquivo não encontrado", str(caminho), cancel=False)
             return
