@@ -172,7 +172,7 @@ MDScreenManager:
             orientation: "vertical"
             MDTopAppBar:
                 id: appbar
-                title: "Orçamentos JM"
+                title: "Top Orçamentos"
                 elevation: 3
                 right_action_items: [["cloud-upload-outline", lambda x: app.tela_backup()], ["cog-outline", lambda x: app.ir_config()], ["exit-to-app", lambda x: app.sair()]]
             MDBottomNavigation:
@@ -328,7 +328,7 @@ MDScreenManager:
 
 
 class OrcamentosApp(MDApp):
-    titulo_app = StringProperty("Orçamentos JM")
+    titulo_app = StringProperty("Top Orçamentos")
 
     def build(self):
         _instalar_captura_erros()

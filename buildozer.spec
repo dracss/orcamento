@@ -1,5 +1,5 @@
 [app]
-title = Orcamentos JM
+title = Top Orçamentos
 package.name = orcamentosjm
 package.domain = br.com.jmservicos
 source.dir = .
