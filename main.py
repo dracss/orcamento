@@ -497,12 +497,16 @@ class OrcamentosApp(MDApp):
                                     on_release=lambda x: self.sair()))
 
     def _cabecalho_dashboard(self, emp):
+        tem_nome = bool((emp.get("nome") or "").strip())
         card = MDCard(size_hint_y=None, height=dp(96), radius=[dp(20)],
                       md_bg_color=self.theme_cls.primary_color, elevation=4,
-                      padding=dp(14), spacing=dp(14))
+                      padding=dp(14), spacing=dp(14), ripple_behavior=True)
+        # toque no cabeçalho abre as Configurações (para personalizar a empresa)
+        card.bind(on_release=lambda w: self.ir_config())
         # círculo com logo ou ícone
         circ = MDCard(size_hint=(None, None), size=(dp(64), dp(64)), radius=[dp(32)],
-                      md_bg_color=(1, 1, 1, 1), elevation=0, padding=dp(6))
+                      md_bg_color=(1, 1, 1, 1), elevation=0, padding=dp(6),
+                      pos_hint={"center_y": .5})
         logo = emp.get("logo_path")
         if logo and os.path.exists(logo):
             circ.add_widget(KivyImage(source=logo, allow_stretch=True, keep_ratio=True))
@@ -511,15 +515,18 @@ class OrcamentosApp(MDApp):
                                    theme_text_color="Custom",
                                    text_color=self.theme_cls.primary_color, font_size="34sp"))
         card.add_widget(circ)
-        texto = MDBoxLayout(orientation="vertical", spacing=dp(2))
-        texto.add_widget(MDLabel(text=emp.get("nome") or "Sua Empresa",
+        texto = MDBoxLayout(orientation="vertical", spacing=dp(2), pos_hint={"center_y": .5})
+        texto.add_widget(MDLabel(text=emp.get("nome") if tem_nome else "Sua Empresa",
                                  font_style="H6", bold=True, theme_text_color="Custom",
                                  text_color=(1, 1, 1, 1), shorten=True))
-        sub = (emp.get("subtitulo") or "").strip()
-        texto.add_widget(MDLabel(
-            text=sub or datetime.now().strftime("Hoje é %d/%m/%Y"),
-            theme_text_color="Custom", text_color=(1, 1, 1, 0.85), font_style="Caption",
-            shorten=True))
+        if tem_nome:
+            sub = (emp.get("subtitulo") or "").strip()
+            sub = sub or datetime.now().strftime("Hoje é %d/%m/%Y")
+        else:
+            sub = "Toque para configurar sua empresa"
+        texto.add_widget(MDLabel(text=sub, theme_text_color="Custom",
+                                 text_color=(1, 1, 1, 0.85), font_style="Caption",
+                                 shorten=True))
         card.add_widget(texto)
         return card
 

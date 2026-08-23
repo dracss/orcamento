@@ -13,7 +13,7 @@ from paths import data_dir
 
 
 DEFAULTS_EMPRESA = {
-    "nome": "JM SERVIÇOS",
+    "nome": "",
     "cnpj": "",
     "endereco": "",
     "telefone": "",
