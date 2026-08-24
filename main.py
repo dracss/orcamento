@@ -1086,6 +1086,9 @@ class OrcamentosApp(MDApp):
         if caminho:
             self._logo_orc = caminho
             self._lbl_logo.text = self._nome_logo(self._logo_orc)
+            # guarda a logo no perfil da empresa para valer nos próximos orçamentos
+            self.db.salvar_empresa({"logo_path": caminho})
+            self.toast("Logo salva para os próximos orçamentos.")
 
     def _coletar_orcamento(self):
         bruto, dval, desc, total = self._calcular_totais()
@@ -1140,6 +1143,12 @@ class OrcamentosApp(MDApp):
                          cancel=False)
             return False
         self.orc_editando = oid
+        # Guarda os dados da empresa no perfil, para que nome/CNPJ/logo/etc.
+        # sejam reaproveitados automaticamente nos próximos orçamentos.
+        try:
+            self.db.salvar_empresa(dados["empresa"])
+        except Exception:
+            pass
         # Confirma que gravou de fato lendo de volta o número
         salvo = self.db.obter_orcamento(oid) or {}
         numero = salvo.get("numero") or dados.get("numero") or ""
